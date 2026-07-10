@@ -2,11 +2,7 @@ import { useState, useMemo, useEffect } from 'react'
 import NotificationList from '../components/NotificationList'
 import Sidebar from '../components/Sidebar'
 import { fetchNotifications } from '../api'
-
-function parseDate(dateStr) {
-  const [dd, mm, yyyy] = dateStr.split('.')
-  return new Date(Number(yyyy), Number(mm) - 1, Number(dd))
-}
+import { sortNotificationsByCreatedAt } from '../utils/notificationSort'
 
 const PAGE_SIZE = 20
 
@@ -29,7 +25,7 @@ export default function ViewerPage() {
   }, [])
 
   const notifications = useMemo(
-    () => [...raw].sort((a, b) => parseDate(b.date) - parseDate(a.date)),
+    () => sortNotificationsByCreatedAt(raw),
     [raw]
   )
 

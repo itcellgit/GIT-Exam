@@ -6,3 +6,5 @@ dist/
 # Backend runtime data (seeded/generated locally)
 server/uploads/
 server/data/
+
+

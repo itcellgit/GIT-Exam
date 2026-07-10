@@ -6,6 +6,15 @@ import { dirname, join } from 'path'
 import { promises as fs } from 'fs'
 import { randomUUID } from 'crypto'
 import bcrypt from 'bcryptjs'
+import {
+  getNotificationSortTime,
+  sortNotifications,
+  getNotificationYear,
+  getYearlyFileName,
+  getYearlyFilePath,
+  readYearlyNotifications,
+  writeYearlyNotifications,
+} from './notificationArchive.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const DATA_DIR = join(__dirname, 'data')
@@ -39,6 +48,24 @@ async function writeJson(file, data) {
   await fs.rename(tmp, file)
 }
 
+async function migrateLegacyNotifications() {
+  try {
+    const legacy = await readJson(NOTIFICATIONS_FILE, [])
+    if (!Array.isArray(legacy) || legacy.length === 0) return false
+
+    const existingArchives = (await fs.readdir(DATA_DIR).catch(() => [])).filter((name) => /^notifications_\d{4}\.json$/.test(name))
+    if (existingArchives.length > 0) return false
+
+    await writeYearlyNotifications(DATA_DIR, legacy)
+    await fs.rm(NOTIFICATIONS_FILE, { force: true })
+    console.log(`Migrated ${legacy.length} notifications from ${NOTIFICATIONS_FILE} to yearly archive files.`)
+    return true
+  } catch (err) {
+    console.warn('Legacy notification migration skipped:', err.message)
+    return false
+  }
+}
+
 async function seedNotifications() {
   // Pull the existing static notifications so viewers keep seeing them.
   const seedPath = join(__dirname, '..', 'src', 'data', 'notifications.js')
@@ -56,17 +83,18 @@ async function seedNotifications() {
     pdf: n.pdf || null,
     createdAt: new Date().toISOString(),
   }))
-  await writeJson(NOTIFICATIONS_FILE, withIds)
-  console.log(`Seeded ${withIds.length} notifications into ${NOTIFICATIONS_FILE}`)
+  await writeYearlyNotifications(DATA_DIR, withIds)
+  console.log(`Seeded ${withIds.length} notifications into yearly archive files in ${DATA_DIR}`)
   return withIds
 }
 
 export async function initStore() {
   await ensureDirs()
 
-  // Seed notifications if the file does not exist yet.
+  // Migrate the legacy single-file store if it still exists, otherwise seed initial data.
   try {
     await fs.access(NOTIFICATIONS_FILE)
+    await migrateLegacyNotifications()
   } catch {
     await seedNotifications()
   }
@@ -93,7 +121,7 @@ export async function initStore() {
 
 // ── Notifications ──
 export async function getNotifications() {
-  return readJson(NOTIFICATIONS_FILE, [])
+  return readYearlyNotifications(DATA_DIR, [])
 }
 
 export async function addNotification({ date, text, pdf }) {
@@ -106,7 +134,7 @@ export async function addNotification({ date, text, pdf }) {
     createdAt: new Date().toISOString(),
   }
   list.push(item)
-  await writeJson(NOTIFICATIONS_FILE, list)
+  await writeYearlyNotifications(DATA_DIR, list)
   return item
 }
 
@@ -115,7 +143,7 @@ export async function updateNotification(id, fields) {
   const idx = list.findIndex((n) => n.id === id)
   if (idx === -1) return null
   list[idx] = { ...list[idx], ...fields, updatedAt: new Date().toISOString() }
-  await writeJson(NOTIFICATIONS_FILE, list)
+  await writeYearlyNotifications(DATA_DIR, list)
   return list[idx]
 }
 
@@ -123,7 +151,7 @@ export async function deleteNotification(id) {
   const list = await getNotifications()
   const item = list.find((n) => n.id === id)
   const next = list.filter((n) => n.id !== id)
-  await writeJson(NOTIFICATIONS_FILE, next)
+  await writeYearlyNotifications(DATA_DIR, next)
   return item || null
 }
 

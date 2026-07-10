@@ -8,17 +8,13 @@ import {
 import Modal from '../components/Modal'
 import NotificationForm from '../components/NotificationForm'
 import ChangePasswordForm from '../components/ChangePasswordForm'
+import { sortNotificationsByCreatedAt } from '../utils/notificationSort'
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
   'July', 'August', 'September', 'October', 'November', 'December',
 ]
 const PAGE_SIZE = 9
-
-function parseDate(dateStr) {
-  const [dd, mm, yyyy] = dateStr.split('.')
-  return new Date(Number(yyyy), Number(mm) - 1, Number(dd))
-}
 
 // yyyy-mm-dd (from <input type="date">) -> dd.mm.yyyy
 function toDdMmYyyy(isoDate) {
@@ -68,7 +64,7 @@ export default function AdminPage() {
   }, [])
 
   const sorted = useMemo(
-    () => [...items].sort((a, b) => parseDate(b.date) - parseDate(a.date)),
+    () => sortNotificationsByCreatedAt(items),
     [items]
   )
 
