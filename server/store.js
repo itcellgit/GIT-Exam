@@ -49,15 +49,19 @@ async function writeJson(file, data) {
   await fs.rename(tmp, file)
 }
 
+async function hasYearlyArchives() {
+  const entries = await fs.readdir(DATA_DIR).catch(() => [])
+  return entries.some((name) => /^notifications_\d{4}\.json$/.test(name))
+}
+
 async function migrateLegacyNotifications() {
   try {
     const legacy = await readJson(NOTIFICATIONS_FILE, [])
     if (!Array.isArray(legacy) || legacy.length === 0) return false
 
-    const existingArchives = (await fs.readdir(DATA_DIR).catch(() => [])).filter((name) => /^notifications_\d{4}\.json$/.test(name))
-    if (existingArchives.length > 0) return false
+    if (await hasYearlyArchives()) return false
 
-    await writeYearlyNotifications(DATA_DIR, legacy)
+    await writeYearlyNotifications(DATA_DIR, legacy, { overwrite: false })
     await fs.rm(NOTIFICATIONS_FILE, { force: true })
     console.log(`Migrated ${legacy.length} notifications from ${NOTIFICATIONS_FILE} to yearly archive files.`)
     return true
@@ -84,7 +88,7 @@ async function seedNotifications() {
     pdf: n.pdf || null,
     createdAt: new Date().toISOString(),
   }))
-  await writeYearlyNotifications(DATA_DIR, withIds)
+  await writeYearlyNotifications(DATA_DIR, withIds, { overwrite: false })
   console.log(`Seeded ${withIds.length} notifications into yearly archive files in ${DATA_DIR}`)
   return withIds
 }
@@ -92,7 +96,10 @@ async function seedNotifications() {
 export async function initStore() {
   await ensureDirs()
 
-  // Migrate the legacy single-file store if it still exists, otherwise seed initial data.
+  if (await hasYearlyArchives()) {
+    return
+  }
+
   try {
     await fs.access(NOTIFICATIONS_FILE)
     await migrateLegacyNotifications()

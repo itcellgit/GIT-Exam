@@ -83,13 +83,24 @@ export async function readYearlyNotifications(dataDir, fallback = []) {
   return sortNotifications(notifications)
 }
 
-export async function writeYearlyNotifications(dataDir, notifications) {
+export async function writeYearlyNotifications(dataDir, notifications, options = {}) {
+  const { overwrite = true } = options
   const grouped = groupNotificationsByYear(notifications)
 
   const years = [...grouped.keys()].sort((a, b) => Number(a) - Number(b))
   for (const year of years) {
     const payload = sortNotifications(grouped.get(year))
     const filePath = getYearlyFilePath(dataDir, year)
+
+    if (!overwrite) {
+      try {
+        await fs.access(filePath)
+        continue
+      } catch {
+        // File does not exist yet, so create it.
+      }
+    }
+
     await fs.writeFile(filePath, JSON.stringify(payload, null, 2), 'utf8')
   }
 
