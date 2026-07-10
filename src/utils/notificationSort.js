@@ -1,10 +1,5 @@
-export function getNotificationSortTime(item) {
+export function getNotificationDateTime(item) {
   if (!item) return 0
-
-  if (item.createdAt) {
-    const createdAtTime = Date.parse(item.createdAt)
-    if (!Number.isNaN(createdAtTime)) return createdAtTime
-  }
 
   if (item.date) {
     const [dd, mm, yyyy] = String(item.date).split('.')
@@ -17,6 +12,17 @@ export function getNotificationSortTime(item) {
   return 0
 }
 
+export function getNotificationCreatedAtTime(item) {
+  if (!item?.createdAt) return 0
+
+  const createdAtTime = Date.parse(item.createdAt)
+  return Number.isNaN(createdAtTime) ? 0 : createdAtTime
+}
+
 export function sortNotificationsByCreatedAt(notifications) {
-  return [...notifications].sort((a, b) => getNotificationSortTime(b) - getNotificationSortTime(a))
+  return [...notifications].sort((a, b) => {
+    const dateDiff = getNotificationDateTime(b) - getNotificationDateTime(a)
+    if (dateDiff !== 0) return dateDiff
+    return getNotificationCreatedAtTime(b) - getNotificationCreatedAtTime(a)
+  })
 }
