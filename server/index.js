@@ -234,9 +234,16 @@ app.use((err, req, res, next) => {
 // ── Serve built frontend in production (single-server deployment) ──
 const distDir = join(__dirname, '..', 'dist')
 if (existsSync(distDir)) {
-  app.use(express.static(distDir))
+  // Vite content-hashes every JS/CSS filename, so those files are safe to
+  // cache forever — but index.html must always be revalidated. Otherwise a
+  // stale cached index.html can point at a hashed asset that a later
+  // deploy has since deleted, and a reload 404s on it (white screen).
+  app.use(express.static(distDir, { index: false, maxAge: '1y', immutable: true }))
   // SPA fallback (Express 5: avoid the bare '*' string route).
-  app.use((req, res) => res.sendFile(join(distDir, 'index.html')))
+  app.use((req, res) => {
+    res.set('Cache-Control', 'no-store')
+    res.sendFile(join(distDir, 'index.html'))
+  })
 }
 
 Promise.all([initStore(), initSidebarLinksStore()])
