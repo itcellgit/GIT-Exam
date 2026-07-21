@@ -64,6 +64,16 @@ export function groupNotificationsByYear(notifications) {
   return grouped
 }
 
+// Cheap year listing: reads only file names, never parses their contents.
+export async function listArchiveYears(dataDir) {
+  const files = (await fs.readdir(dataDir).catch(() => [])).filter((name) =>
+    /^notifications_\d{4}\.json$/.test(name)
+  )
+  return files
+    .map((name) => Number(name.match(/^notifications_(\d{4})\.json$/)[1]))
+    .sort((a, b) => b - a)
+}
+
 export async function readYearlyNotifications(dataDir, fallback = []) {
   const files = (await fs.readdir(dataDir).catch(() => [])).filter((name) => /^notifications_\d{4}\.json$/.test(name)).sort()
   if (files.length === 0) return fallback

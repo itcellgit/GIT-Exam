@@ -1,52 +1,60 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import NotificationList from '../components/NotificationList'
 import Sidebar from '../components/Sidebar'
 import { fetchNotifications } from '../api'
-import { sortNotificationsByCreatedAt } from '../utils/notificationSort'
 
 const PAGE_SIZE = 20
+const SEARCH_DEBOUNCE_MS = 350
 
 export default function ViewerPage() {
-  const [raw, setRaw] = useState([])
   const [status, setStatus] = useState('loading') // loading | ready | error
+  const [notifications, setNotifications] = useState([])
+  const [total, setTotal] = useState(0)
+  const [years, setYears] = useState([])
+
   const [query, setQuery] = useState('')
+  const [debouncedQuery, setDebouncedQuery] = useState('')
   const [filterYear, setFilterYear] = useState('')
   const [filterMonth, setFilterMonth] = useState('')
   const [filterDay, setFilterDay] = useState('')
   const [page, setPage] = useState(1)
 
+  // Debounce free-text search so every keystroke doesn't hit the server.
   useEffect(() => {
-    fetchNotifications()
+    const t = setTimeout(() => {
+      setDebouncedQuery(query)
+      setPage(1)
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(t)
+  }, [query])
+
+  useEffect(() => {
+    let cancelled = false
+    fetchNotifications({
+      year: filterYear,
+      month: filterMonth,
+      day: filterDay,
+      q: debouncedQuery,
+      page,
+      pageSize: PAGE_SIZE,
+    })
       .then((data) => {
-        setRaw(data)
+        if (cancelled) return
+        setNotifications(data.items)
+        setTotal(data.total)
+        setYears(data.years)
+        if (data.page !== page) setPage(data.page)
         setStatus('ready')
       })
-      .catch(() => setStatus('error'))
-  }, [])
+      .catch(() => {
+        if (!cancelled) setStatus('error')
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [filterYear, filterMonth, filterDay, debouncedQuery, page])
 
-  const notifications = useMemo(
-    () => sortNotificationsByCreatedAt(raw),
-    [raw]
-  )
-
-  const years = useMemo(() => {
-    const set = new Set(notifications.map((n) => n.date.split('.')[2]))
-    return [...set].sort((a, b) => b - a)
-  }, [notifications])
-
-  const filtered = useMemo(() => {
-    return notifications.filter((n) => {
-      const [dd, mm, yyyy] = n.date.split('.')
-      if (filterYear && yyyy !== filterYear) return false
-      if (filterMonth && mm !== filterMonth) return false
-      if (filterDay && dd !== filterDay) return false
-      if (query && !n.text.toLowerCase().includes(query.toLowerCase())) return false
-      return true
-    })
-  }, [notifications, query, filterYear, filterMonth, filterDay])
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE))
-  const paginated = filtered.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
 
   function goTo(p) {
     setPage(p)
@@ -68,31 +76,19 @@ export default function ViewerPage() {
         )}
         {status === 'ready' && (
           <NotificationList
-            notifications={paginated}
-            total={filtered.length}
+            notifications={notifications}
+            total={total}
             page={page}
             totalPages={totalPages}
             goTo={goTo}
             query={query}
-            setQuery={(q) => {
-              setQuery(q)
-              resetPage()
-            }}
+            setQuery={setQuery}
             filterYear={filterYear}
-            setFilterYear={(y) => {
-              setFilterYear(y)
-              resetPage()
-            }}
+            setFilterYear={(y) => { setFilterYear(y); resetPage() }}
             filterMonth={filterMonth}
-            setFilterMonth={(m) => {
-              setFilterMonth(m)
-              resetPage()
-            }}
+            setFilterMonth={(m) => { setFilterMonth(m); resetPage() }}
             filterDay={filterDay}
-            setFilterDay={(d) => {
-              setFilterDay(d)
-              resetPage()
-            }}
+            setFilterDay={(d) => { setFilterDay(d); resetPage() }}
             years={years}
             pageSize={PAGE_SIZE}
           />

@@ -15,6 +15,7 @@ import {
   getYearlyFilePath,
   readYearlyNotifications,
   writeYearlyNotifications,
+  listArchiveYears,
 } from './notificationArchive.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -130,6 +131,47 @@ export async function initStore() {
 // ── Notifications ──
 export async function getNotifications() {
   return readYearlyNotifications(DATA_DIR, [])
+}
+
+// Cheap: only reads yearly archive file names, not their contents.
+export async function getNotificationYears() {
+  return listArchiveYears(DATA_DIR)
+}
+
+// Server-side filter + paginate. When `year` is given, only that year's
+// archive file is read from disk instead of every year in history — the
+// fast path that keeps this cheap as the notification history grows.
+export async function queryNotifications({ year, month, day, q, page, pageSize }) {
+  let list
+  if (year) {
+    const filePath = getYearlyFilePath(DATA_DIR, year)
+    const raw = await fs.readFile(filePath, 'utf8').catch(() => '[]')
+    try {
+      const parsed = JSON.parse(raw)
+      list = sortNotifications(Array.isArray(parsed) ? parsed : [])
+    } catch {
+      list = []
+    }
+  } else {
+    list = await getNotifications()
+  }
+
+  const needle = q ? q.toLowerCase() : ''
+  const filtered = list.filter((n) => {
+    const [dd, mm, yyyy] = String(n.date || '').split('.')
+    if (year && yyyy !== String(year)) return false
+    if (month && mm !== month) return false
+    if (day && dd !== day) return false
+    if (needle && !n.text.toLowerCase().includes(needle)) return false
+    return true
+  })
+
+  const total = filtered.length
+  const totalPages = Math.max(1, Math.ceil(total / pageSize))
+  const safePage = Math.min(Math.max(1, page), totalPages)
+  const items = filtered.slice((safePage - 1) * pageSize, safePage * pageSize)
+
+  return { items, total, page: safePage, pageSize, totalPages }
 }
 
 export async function addNotification({ date, text, pdf }) {

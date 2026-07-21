@@ -1,9 +1,27 @@
-import sidebarLinks from '../data/sidebarLinks'
+import { useEffect, useState } from 'react'
+import staticSidebarLinks from '../data/sidebarLinks'
+import { fetchSidebarLinks } from '../api'
+
+function toGroups(data) {
+  return [
+    { section: null, items: data.transcript || [] },
+    { section: 'Help Files', items: data.helpFiles || [] },
+  ]
+}
 
 export default function Sidebar() {
+  // Fall back to the bundled static list if the API is unreachable.
+  const [groups, setGroups] = useState(staticSidebarLinks)
+
+  useEffect(() => {
+    fetchSidebarLinks()
+      .then((data) => setGroups(toGroups(data)))
+      .catch(() => {})
+  }, [])
+
   return (
     <aside className="sidebar">
-      {sidebarLinks.map((group, gi) => (
+      {groups.map((group, gi) => (
         <div key={gi} className="sidebar-group">
           {group.section && (
             <h3 className="sidebar-group-heading">{group.section}</h3>

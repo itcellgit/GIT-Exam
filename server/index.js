@@ -6,6 +6,7 @@ import { randomUUID } from 'crypto'
 import express from 'express'
 import cors from 'cors'
 import multer from 'multer'
+import compression from 'compression'
 
 import {
   requireAuth,
@@ -17,11 +18,21 @@ import {
 import {
   initStore,
   getNotifications,
+  getNotificationYears,
+  queryNotifications,
   addNotification,
   updateNotification,
   deleteNotification,
   UPLOADS_DIR,
 } from './store.js'
+import {
+  initSidebarLinksStore,
+  getSidebarLinks,
+  addSidebarLink,
+  updateSidebarLink,
+  deleteSidebarLink,
+  reorderSidebarLinks,
+} from './sidebarLinksStore.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const PORT = process.env.PORT || 4000
@@ -44,7 +55,22 @@ const upload = multer({
   },
 })
 
+// Sidebar link attachments: PDFs and common image formats.
+const LINK_FILE_EXTS = new Set(['.pdf', '.jpg', '.jpeg', '.png', '.gif'])
+const uploadLinkFile = multer({
+  storage,
+  limits: { fileSize: 25 * 1024 * 1024 }, // 25 MB
+  fileFilter: (req, file, cb) => {
+    const isAllowed =
+      file.mimetype === 'application/pdf' ||
+      file.mimetype.startsWith('image/') ||
+      LINK_FILE_EXTS.has(extname(file.originalname).toLowerCase())
+    cb(isAllowed ? null : new Error('Only PDF or image files are allowed'), isAllowed)
+  },
+})
+
 const app = express()
+app.use(compression())
 app.use(cors())
 app.use(express.json())
 
@@ -59,8 +85,20 @@ app.post('/api/auth/forgot-password', forgotPassword)
 app.post('/api/auth/reset-password', resetPassword)
 
 // ── Notifications ──
+// Query params: year, month (mm), day (dd), q (free-text), page, pageSize.
+// All optional; omitting them returns page 1 of the full (sorted) history.
 app.get('/api/notifications', async (req, res) => {
-  res.json(await getNotifications())
+  const { year, month, day, q } = req.query
+  const page = Math.max(1, parseInt(req.query.page, 10) || 1)
+  const pageSize = Math.min(100, Math.max(1, parseInt(req.query.pageSize, 10) || 20))
+
+  const [result, years] = await Promise.all([
+    queryNotifications({ year, month, day, q, page, pageSize }),
+    getNotificationYears(),
+  ])
+
+  res.set('Cache-Control', 'public, max-age=30')
+  res.json({ ...result, years })
 })
 
 app.post('/api/notifications', requireAuth, upload.single('pdfFile'), async (req, res) => {
@@ -113,6 +151,80 @@ app.delete('/api/notifications/:id', requireAuth, async (req, res) => {
   res.json({ ok: true })
 })
 
+// ── Sidebar links (Transcript Application / Help Files) ──
+app.get('/api/sidebar-links', async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=30')
+  res.json(await getSidebarLinks())
+})
+
+app.post('/api/sidebar-links/:section', requireAuth, uploadLinkFile.single('file'), async (req, res) => {
+  const { text, note } = req.body
+  let { url } = req.body
+  if (!text || !text.trim()) {
+    return res.status(400).json({ error: 'Link text is required' })
+  }
+  if (req.file) url = `/uploads/${req.file.filename}`
+  if (!url || !url.trim()) {
+    return res.status(400).json({ error: 'A file upload or URL is required' })
+  }
+  try {
+    const item = await addSidebarLink(req.params.section, {
+      text: text.trim(),
+      url: url.trim(),
+      note: note && note.trim() ? note.trim() : null,
+    })
+    res.status(201).json(item)
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message })
+  }
+})
+
+// Must be registered before the generic ':id' route below.
+app.put('/api/sidebar-links/:section/reorder', requireAuth, async (req, res) => {
+  const { order } = req.body || {}
+  if (!Array.isArray(order)) {
+    return res.status(400).json({ error: 'order must be an array of ids' })
+  }
+  try {
+    const list = await reorderSidebarLinks(req.params.section, order)
+    res.json(list)
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message })
+  }
+})
+
+app.put('/api/sidebar-links/:section/:id', requireAuth, uploadLinkFile.single('file'), async (req, res) => {
+  const { text, note } = req.body
+  let { url } = req.body
+  const fields = {}
+
+  if (text !== undefined) {
+    if (!text.trim()) return res.status(400).json({ error: 'Link text is required' })
+    fields.text = text.trim()
+  }
+  if (req.file) fields.url = `/uploads/${req.file.filename}`
+  else if (url && url.trim()) fields.url = url.trim()
+  if (note !== undefined) fields.note = note.trim() ? note.trim() : null
+
+  try {
+    const updated = await updateSidebarLink(req.params.section, req.params.id, fields)
+    if (!updated) return res.status(404).json({ error: 'Link not found' })
+    res.json(updated)
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message })
+  }
+})
+
+app.delete('/api/sidebar-links/:section/:id', requireAuth, async (req, res) => {
+  try {
+    const removed = await deleteSidebarLink(req.params.section, req.params.id)
+    if (!removed) return res.status(404).json({ error: 'Link not found' })
+    res.json({ ok: true })
+  } catch (err) {
+    res.status(err.status || 400).json({ error: err.message })
+  }
+})
+
 // Multer / generic error handler
 app.use((err, req, res, next) => {
   if (err) return res.status(400).json({ error: err.message || 'Request failed' })
@@ -127,7 +239,7 @@ if (existsSync(distDir)) {
   app.use((req, res) => res.sendFile(join(distDir, 'index.html')))
 }
 
-initStore()
+Promise.all([initStore(), initSidebarLinksStore()])
   .then(() => {
     app.listen(PORT, () => console.log(`API listening on http://localhost:${PORT}`))
   })

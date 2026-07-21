@@ -58,8 +58,23 @@ export async function resetPassword(token, newPassword) {
   return handle(res)
 }
 
-export async function fetchNotifications() {
-  const res = await fetch('/api/notifications')
+// filters: { year?, month?, day?, q?, page?, pageSize? }
+// opts: { noStore? } — pass noStore to bypass the HTTP cache (admin, so
+// edits are visible immediately instead of waiting out the Cache-Control).
+// Returns { items, total, page, pageSize, totalPages, years }.
+export async function fetchNotifications(filters = {}, opts = {}) {
+  const { year, month, day, q, page, pageSize } = filters
+  const params = new URLSearchParams()
+  if (year) params.set('year', year)
+  if (month) params.set('month', month)
+  if (day) params.set('day', day)
+  if (q) params.set('q', q)
+  if (page) params.set('page', page)
+  if (pageSize) params.set('pageSize', pageSize)
+  const qs = params.toString()
+  const res = await fetch(`/api/notifications${qs ? `?${qs}` : ''}`, {
+    cache: opts.noStore ? 'no-store' : 'default',
+  })
   return handle(res)
 }
 
@@ -98,6 +113,60 @@ export async function deleteNotification(id) {
   const res = await fetch(`/api/notifications/${id}`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${getToken()}` },
+  })
+  return handle(res)
+}
+
+// ── Sidebar links (Transcript Application / Help Files) ──
+export async function fetchSidebarLinks() {
+  const res = await fetch('/api/sidebar-links')
+  return handle(res)
+}
+
+// payload: { text, url?, note?, file? (File) }
+export async function createSidebarLink(section, { text, url, note, file }) {
+  const form = new FormData()
+  form.append('text', text)
+  if (url) form.append('url', url)
+  if (note) form.append('note', note)
+  if (file) form.append('file', file)
+  const res = await fetch(`/api/sidebar-links/${section}`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  })
+  return handle(res)
+}
+
+// payload: { text?, url?, note?, file? (File) }
+export async function updateSidebarLink(section, id, { text, url, note, file }) {
+  const form = new FormData()
+  if (text !== undefined) form.append('text', text)
+  if (url) form.append('url', url)
+  if (note !== undefined) form.append('note', note)
+  if (file) form.append('file', file)
+  const res = await fetch(`/api/sidebar-links/${section}/${id}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${getToken()}` },
+    body: form,
+  })
+  return handle(res)
+}
+
+export async function deleteSidebarLink(section, id) {
+  const res = await fetch(`/api/sidebar-links/${section}/${id}`, {
+    method: 'DELETE',
+    headers: { Authorization: `Bearer ${getToken()}` },
+  })
+  return handle(res)
+}
+
+// order: array of link ids in the desired display order
+export async function reorderSidebarLinks(section, order) {
+  const res = await fetch(`/api/sidebar-links/${section}/reorder`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+    body: JSON.stringify({ order }),
   })
   return handle(res)
 }
